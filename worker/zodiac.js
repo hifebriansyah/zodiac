@@ -3,7 +3,7 @@
 //   GET /reading/general/{date}                 the general reading of all 12 signs
 // Each reading is a file in the R2 bucket (binding READINGS): {slug}.json. The file is read first; Gemini is asked only when it is missing,
 // and the answer is saved so the same URL is written once.
-// Settings (worker/zodiac.jsonc): THINKING_BUDGET, MAX_OUTPUT_TOKENS, the rate limit LIMITER. Secret: GEMINI_API_KEY (Cloudflare dashboard).
+// Settings (worker/zodiac.jsonc): AXIOM_DATASET, AXIOM_URL, THINKING_BUDGET, MAX_OUTPUT_TOKENS, the rate limit LIMITER. Secret: GEMINI_API_KEY (Cloudflare dashboard).
 
 const MODEL = "gemini-3.8-flash";  // always this model: no fallback to another one
 
@@ -172,8 +172,29 @@ general = bacaan umum, career = bacaan karier, economy = prospek keuangan/materi
 // ---------- worker ----------
 const json = (obj, status = 200, extra = {}) => new Response(JSON.stringify(obj), { status, headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", ...extra } });
 
+// Request log (Axiom, when AXIOM_TOKEN is set): one line per request into the shared dataset logs.situs.id; "origin" says which worker wrote it.
+function logLine(env, ctx, event) {
+  if (!env.AXIOM_TOKEN) return;
+  const url = `${env.AXIOM_URL || "https://us-east-1.aws.edge.axiom.co"}/v1/ingest/${encodeURIComponent(env.AXIOM_DATASET || "logs.situs.id")}`;
+  ctx.waitUntil(fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.AXIOM_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify([{ _time: new Date().toISOString(), origin: "zodiac-worker.situs.id", ...event }]),
+  }).catch(() => {}));  // a lost log line never breaks an answer
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    const started = Date.now();
+    const info = {};
+    const res = await handle(request, env, info);
+    logLine(env, ctx, { method: request.method, path: new URL(request.url).pathname, status: res.status, ms: Date.now() - started, ...info });
+    return res;
+  },
+};
+
+async function handle(request, env, info) {
+  {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method not allowed" }, 405, { Allow: "GET, HEAD, OPTIONS" });
 
@@ -185,7 +206,7 @@ export default {
     if (parts.length === 3 && parts[1] === "general") {
       date = parseDate(parts[2]);
       if (!date) return json({ error: "date must be a real date in YYYYMMDD format" }, 400);
-      slug = `general-readings-${parts[2]}`;
+      slug = `general-readings-${parts[2]}`; info.kind = "general"; info.slug = slug;
       build = () => makeGeneral(env, { slug }, date);
     } else if (parts.length === 5) {
       const [, sign, era, career, d] = parts;
@@ -196,7 +217,7 @@ export default {
       date = parseDate(d);
       if (!date) problems.push("date must be a real date in YYYYMMDD format");
       if (problems.length) return json({ error: problems.join("; ") }, 400);
-      slug = `${sign}-${era}-${career}-${d}`;
+      slug = `${sign}-${era}-${career}-${d}`; info.kind = "reading"; info.slug = slug;
       build = () => makeReading(env, { slug }, sign, era, career, date);
     } else {
       return json({ error: "not found" }, 404);
@@ -204,21 +225,24 @@ export default {
 
     // The file first: a saved reading is returned as it is, and Gemini is not asked.
     const file = await env.READINGS.get(`${slug}.json`);
+    if (file) info.cache = "HIT";
     if (file) return new Response(request.method === "HEAD" ? null : file.body, { headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Cache": "HIT" } });
 
     if (!env.GEMINI_API_KEY) return json({ error: "not configured" }, 503);
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-    if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) return json({ error: "too many new readings, try again in a minute" }, 429, { "Retry-After": "60" });
+    if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) { info.error = "rate limited"; return json({ error: "too many new readings, try again in a minute" }, 429, { "Retry-After": "60" }); }
 
+    info.cache = "MISS";
     let reading;
     try {
       reading = await build();
     } catch (err) {
+      info.error = String(err.message || err).slice(0, 300);
       const status = err.status === 429 ? 503 : 502;
       return json({ error: "could not write the reading", detail: String(err.message || err).slice(0, 300) }, status, { "Retry-After": "30" });
     }
     const body = JSON.stringify(reading);
     await env.READINGS.put(`${slug}.json`, body, { httpMetadata: { contentType: "application/json" } });
     return new Response(request.method === "HEAD" ? null : body, { headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Cache": "MISS" } });
-  },
-};
+  }
+}

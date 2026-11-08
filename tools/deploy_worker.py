@@ -94,6 +94,11 @@ def main():
     if not payload.get("success"):
         sys.exit(f"Deploy failed: {payload.get('errors')}")
     print(f"Deployed worker '{cfg['name']}' ({len(code)} bytes).")
+    for name in ("AXIOM_TOKEN",):  # copied from .env, never printed
+        value = os.environ.get(name)
+        if value:
+            res = call(token, "PUT", f"/accounts/{account}/workers/scripts/{cfg['name']}/secrets", {"name": name, "text": value, "type": "secret_text"})
+            print(f"Secret {name} {'set' if res.get('success') else 'NOT set'} on the Worker.")
 
     domain = cfg["domain"]
     zones = call(token, "GET", f"/zones?name={'.'.join(domain.split('.')[-2:])}").get("result") or []

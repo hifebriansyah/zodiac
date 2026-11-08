@@ -13,7 +13,10 @@
   "vars": {
     // The model is fixed in zodiac.js: always gemini-3.8-flash.
     "THINKING_BUDGET": "0",
-    "MAX_OUTPUT_TOKENS": "12000"
+    "MAX_OUTPUT_TOKENS": "12000",
+    // The request log (secret AXIOM_TOKEN, copied from .env by the deploy): the shared dataset of the situs.id workers, in the US region.
+    "AXIOM_DATASET": "logs.situs.id",
+    "AXIOM_URL": "https://us-east-1.aws.edge.axiom.co"
   },
   // Secret GEMINI_API_KEY: entered in the Cloudflare dashboard (Worker > Settings > Variables and Secrets); deploys keep it.
   // Only a request that needs Gemini (nothing in R2 yet) counts: at most 6 a minute from one IP address.
