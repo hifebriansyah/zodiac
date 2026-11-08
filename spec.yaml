@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Astrological Reading API
   description: Generates personalized astrological and career readings based on zodiac sign, life era, career archetype, and specific dates.
-  version: 1.5.0
+  version: 1.8.0
 paths:
   /reading/{sign}/{era}/{career}/{date}:
     get:
@@ -122,16 +122,47 @@ components:
           type: string
           example: "Avoid opening your smartphone immediately upon waking up..."
 
+    EncounterItem:
+      type: object
+      description: Astrological dynamic and advice for a specific relationship type.
+      required:
+        - type
+        - rating
+        - description
+      properties:
+        type:
+          type: string
+          description: The specific type of relationship encounter.
+          enum:
+            - family
+            - couple
+            - friends
+            - colleagues
+            - boss
+            - subordinates
+            - clients
+          example: "boss"
+        rating:
+          type: integer
+          description: A numeric score (1-10) indicating the harmony or intensity of the encounter today.
+          minimum: 1
+          maximum: 10
+          example: 8
+        description:
+          type: string
+          description: Astrological dynamic and actionable advice for this relationship.
+          example: "Your Aries boss is looking for decisive action. Do not approach them with a problem unless you have a solution ready."
+
     SynastryItem:
       type: object
       required:
         - sign
-        - reading
+        - encounters
         - routine
       properties:
         sign:
           type: string
-          description: The zodiac sign of the partner.
+          description: The zodiac sign of the partner/encounter.
           enum:
             - aries
             - taurus
@@ -146,24 +177,28 @@ components:
             - aquarius
             - pisces
           example: "aries"
-        reading:
-          type: string
-          description: Comprehensive relationship advice for this sign pairing.
-          example: "Your Aries partner might feel sidelined by your sudden career pivot. Channel their competitive energy by asking for their advice on your next bold move."
+        encounters:
+          type: array
+          description: A complete list of relationship dynamics. This array will always return exactly 7 items, one for each relationship type (family, couple, friends, colleagues, boss, subordinates, clients).
+          minItems: 7
+          maxItems: 7
+          items:
+            $ref: '#/components/schemas/EncounterItem'
         routine:
           type: array
           description: Recommended joint schedule or couple's routine optimized for this astrological pairing.
           items:
             $ref: '#/components/schemas/RoutineItem'
 
-    ReadingsObject:
+    ReadingObject:
       type: object
-      description: Categorized astrological readings for a specific sign.
+      description: Categorized astrological reading for a specific sign.
       required:
         - sign
         - general
         - career
         - economy
+        - family
       properties:
         sign:
           type: string
@@ -194,16 +229,20 @@ components:
           type: string
           description: Financial and material outlook for the day.
           example: "Avoid impulsive spending; a long-term investment opportunity may present itself."
+        family:
+          type: string
+          description: Astrological guidance concerning family dynamics and household relationships for the day.
+          example: "A minor disagreement over household responsibilities could escalate today. Practice patience with older relatives."
 
     ReadingResponse:
       type: object
       required:
         - slug
         - lucky_color
-        - readings
-        - moods
+        - reading
+        - mood
         - routine
-        - synastry
+        - synastries
       properties:
         slug:
           type: string
@@ -213,9 +252,9 @@ components:
           type: string
           description: The auspicious color for the day.
           example: "Crimson"
-        readings:
-          $ref: '#/components/schemas/ReadingsObject'
-        moods:
+        reading:
+          $ref: '#/components/schemas/ReadingObject'
+        mood:
           type: object
           description: Numeric scores (1-10) indicating the energy levels for various aspects of the day.
           required:
@@ -241,9 +280,9 @@ components:
           description: Chronological daily schedule/routine optimized for the astrological alignment.
           items:
             $ref: '#/components/schemas/RoutineItem'
-        synastry:
+        synastries:
           type: array
-          description: Comprehensive relationship readings and tailored routines. This array explicitly returns all 12 zodiac signs.
+          description: Comprehensive relationship dynamics categorizing interactions across family, friends, work, and romance. This array explicitly returns all 12 zodiac signs.
           minItems: 12
           maxItems: 12
           items:
@@ -265,4 +304,4 @@ components:
           minItems: 12
           maxItems: 12
           items:
-            $ref: '#/components/schemas/ReadingsObject'
+            $ref: '#/components/schemas/ReadingObject'

@@ -24,7 +24,9 @@ const STR = { type: "STRING" };
 const TIME = { type: "STRING", description: "HH:MM, in 15-minute steps" };
 const BLOCK = { type: "OBJECT", properties: { from: TIME, to: TIME, title: STR, description: STR }, required: ["from", "to", "title", "description"], propertyOrdering: ["from", "to", "title", "description"] };
 const BLOCKS = { type: "ARRAY", items: BLOCK };
-const READINGS = { type: "OBJECT", properties: { general: STR, career: STR, economy: STR }, required: ["general", "career", "economy"], propertyOrdering: ["general", "career", "economy"] };
+const READINGS = { type: "OBJECT", properties: { general: STR, career: STR, economy: STR, family: STR }, required: ["general", "career", "economy", "family"], propertyOrdering: ["general", "career", "economy", "family"] };
+const ENCOUNTERS = ["family", "couple", "friends", "colleagues", "boss", "subordinates", "clients"];  // spec.yaml EncounterItem.type, always all seven, in this order
+const ENCOUNTER = { type: "OBJECT", properties: { type: { type: "STRING", enum: ENCOUNTERS }, rating: { type: "INTEGER", description: "1 to 10" }, description: STR }, required: ["type", "rating", "description"], propertyOrdering: ["type", "rating", "description"] };
 const MOOD = { type: "INTEGER", description: "1 to 10" };
 
 const CORE_SCHEMA = {
@@ -40,7 +42,7 @@ const CORE_SCHEMA = {
 };
 
 function synastrySchema(signs) {
-  const item = { type: "OBJECT", properties: { reading: STR, routine: BLOCKS }, required: ["reading", "routine"], propertyOrdering: ["reading", "routine"] };
+  const item = { type: "OBJECT", properties: { encounters: { type: "ARRAY", items: ENCOUNTER }, routine: BLOCKS }, required: ["encounters", "routine"], propertyOrdering: ["encounters", "routine"] };
   return { type: "OBJECT", properties: Object.fromEntries(signs.map((s) => [s, item])), required: signs, propertyOrdering: signs };
 }
 
@@ -129,14 +131,21 @@ async function ask(env, prompt, schema, check) {
 }
 
 const hasText = (o, keys) => keys.every((k) => typeof o?.[k] === "string" && o[k].trim());
-function checkReadings(r) { if (!hasText(r, ["general", "career", "economy"])) throw new Error("incomplete readings"); return r; }
+function checkReadings(r) { if (!hasText(r, ["general", "career", "economy", "family"])) throw new Error("incomplete readings"); return r; }
+
+// Exactly one encounter of each type, rating 1-10, in the order of ENCOUNTERS.
+function toEncounters(list) {
+  const out = ENCOUNTERS.map((type) => (Array.isArray(list) ? list : []).find((e) => e?.type === type));
+  for (const e of out) if (!e || !Number.isInteger(e.rating) || e.rating < 1 || e.rating > 10 || !hasText(e, ["description"])) throw new Error("bad encounters");
+  return out.map((e) => ({ type: e.type, rating: e.rating, description: e.description }));
+}
 
 // ---------- generating ----------
 async function makeReading(env, p, sign, era, career, date) {
   const profile = `Tanggal: ${dateLabel(date)}.\nZodiak: ${sign}.\nFase hidup (era): ${ERAS[era]}.\nArketipe karier: ${CAREERS[career]}.`;
   const core = ask(env, `${profile}\n\nBuat bacaan harian untuk orang ini pada tanggal tersebut.
 - lucky_color: satu warna (nama saja, misalnya "Merah Marun").
-- readings.general: bacaan umum hari itu. readings.career: bacaan karier yang menyesuaikan era dan arketipe di atas. readings.economy: prospek keuangan/materi hari itu.
+- readings.general: bacaan umum hari itu. readings.career: bacaan karier yang menyesuaikan era dan arketipe di atas. readings.economy: prospek keuangan/materi hari itu. readings.family: panduan hubungan keluarga dan rumah tangga hari itu.
 - moods: skor bulat 1-10 untuk sex, hustle, vibe, success (jangan semuanya sama).
 - routine: jadwal harian yang dioptimalkan untuk tanggal ini, mulai pukul 00:00 dan berakhir pukul 23:45, 7-10 blok berurutan tanpa celah.`,
     CORE_SCHEMA, (o) => {
@@ -147,26 +156,29 @@ async function makeReading(env, p, sign, era, career, date) {
       if (o.routine[0].from !== date.midnight || o.routine.at(-1).to !== date.midnight + 23 * 3600 + 45 * 60) throw new Error("routine must run 00:00-23:45");
       return o;
     });
-  // Twelve partners are too much for one answer, so they are written in two halves at the same time.
-  const half = (signs) => ask(env, `${profile}\n\nUntuk orang ini, tulis nasihat hubungan (synastry) dengan pasangan/orang dekat berzodiak: ${signs.join(", ")}.
-Untuk setiap zodiak: reading = saran hubungan 2-4 kalimat yang spesifik untuk pasangan ${sign} x zodiak itu pada tanggal ini; routine = jadwal bersama untuk berdua, 3-4 blok berurutan antara 06:00 dan 23:00.`,
+  const part = (signs) => ask(env, `${profile}\n\nUntuk orang ini, tulis dinamika hubungan (synastry) dengan orang berzodiak: ${signs.join(", ")}.
+Untuk setiap zodiak: encounters = TEPAT 7 item, satu untuk tiap jenis hubungan (${ENCOUNTERS.join(", ")}) saat bertemu orang berzodiak itu pada tanggal ini. Tiap item: rating 1-10 (keselarasan/intensitas hari itu; variasikan) dan description 1-2 kalimat dinamika plus saran yang bisa dilakukan.
+routine = jadwal bersama untuk berdua (pasangan/orang dekat zodiak itu), 3-4 blok berurutan antara 06:00 dan 23:00.`,
     synastrySchema(signs), (o) => {
       for (const s of signs) {
-        if (!hasText(o[s], ["reading"])) throw new Error(`no synastry for ${s}`);
+        if (!o[s]) throw new Error(`no synastry for ${s}`);
+        o[s].encounters = toEncounters(o[s].encounters);
         o[s].routine = toRoutine(o[s].routine, date);
       }
       return o;
     });
-  const [c, a, b] = await Promise.all([core, half(SIGNS.slice(0, 6)), half(SIGNS.slice(6))]);
-  const synastry = SIGNS.map((s) => ({ sign: s, reading: (a[s] || b[s]).reading, routine: (a[s] || b[s]).routine }));  // an array of 12, as in spec.yaml
-  return { slug: p.slug, lucky_color: c.lucky_color, readings: { sign, ...c.readings }, moods: c.moods, routine: c.routine, synastry };
+  // Twelve partners are too much for one answer, so they are written in three parts at the same time.
+  const [c, a, b, d] = await Promise.all([core, part(SIGNS.slice(0, 4)), part(SIGNS.slice(4, 8)), part(SIGNS.slice(8))]);
+  const synastries = SIGNS.map((s) => { const x = a[s] || b[s] || d[s]; return { sign: s, encounters: x.encounters, routine: x.routine }; });  // an array of 12, as in spec.yaml
+  const r = c.readings;
+  return { slug: p.slug, lucky_color: c.lucky_color, reading: { sign, general: r.general, career: r.career, economy: r.economy, family: r.family }, mood: c.moods, routine: c.routine, synastries };
 }
 
 async function makeGeneral(env, p, date) {
   const out = await ask(env, `Tanggal: ${dateLabel(date)}.\n\nBuat bacaan umum harian untuk semua 12 zodiak (${SIGNS.join(", ")}) pada tanggal tersebut. Untuk setiap zodiak:
-general = bacaan umum, career = bacaan karier, economy = prospek keuangan/materi. Setiap zodiak harus terasa berbeda.`,
+general = bacaan umum, career = bacaan karier, economy = prospek keuangan/materi, family = panduan hubungan keluarga. Setiap zodiak harus terasa berbeda.`,
     generalSchema(), (o) => { for (const s of SIGNS) checkReadings(o[s]); return o; });
-  return { slug: p.slug, readings: SIGNS.map((s) => ({ sign: s, general: out[s].general, career: out[s].career, economy: out[s].economy })) };
+  return { slug: p.slug, readings: SIGNS.map((s) => ({ sign: s, general: out[s].general, career: out[s].career, economy: out[s].economy, family: out[s].family })) };
 }
 
 // ---------- worker ----------
