@@ -1,6 +1,7 @@
 // zodiac-worker.situs.id: personalised astrology readings written by Gemini, in Bahasa Indonesia.
 //   GET /reading/{sign}/{era}/{career}/{date}   one reading (date = YYYYMMDD)
 //   GET /reading/general/{date}                 the general reading of all 12 signs
+// Add ?bust=1 to either to skip the saved file and replace it with a new reading.
 // Each reading is a file in the R2 bucket (binding READINGS): {slug}.json. The file is read first; Gemini is asked only when it is missing,
 // and the answer is saved so the same URL is written once.
 // Settings (worker/zodiac.jsonc): AXIOM_DATASET, AXIOM_URL, THINKING_BUDGET, MAX_OUTPUT_TOKENS, the rate limit LIMITER. Secret: GEMINI_API_KEY (Cloudflare dashboard).
@@ -157,16 +158,15 @@ Untuk setiap zodiak: reading = saran hubungan 2-4 kalimat yang spesifik untuk pa
       return o;
     });
   const [c, a, b] = await Promise.all([core, half(SIGNS.slice(0, 6)), half(SIGNS.slice(6))]);
-  const synastry = {};
-  for (const s of SIGNS) synastry[s] = (a[s] || b[s]);
-  return { slug: p.slug, lucky_color: c.lucky_color, readings: c.readings, moods: c.moods, routine: c.routine, synastry };
+  const synastry = SIGNS.map((s) => ({ sign: s, reading: (a[s] || b[s]).reading, routine: (a[s] || b[s]).routine }));  // an array of 12, as in spec.yaml
+  return { slug: p.slug, lucky_color: c.lucky_color, readings: { sign, ...c.readings }, moods: c.moods, routine: c.routine, synastry };
 }
 
 async function makeGeneral(env, p, date) {
   const out = await ask(env, `Tanggal: ${dateLabel(date)}.\n\nBuat bacaan umum harian untuk semua 12 zodiak (${SIGNS.join(", ")}) pada tanggal tersebut. Untuk setiap zodiak:
 general = bacaan umum, career = bacaan karier, economy = prospek keuangan/materi. Setiap zodiak harus terasa berbeda.`,
     generalSchema(), (o) => { for (const s of SIGNS) checkReadings(o[s]); return o; });
-  return { slug: p.slug, signs: out };
+  return { slug: p.slug, readings: SIGNS.map((s) => ({ sign: s, general: out[s].general, career: out[s].career, economy: out[s].economy })) };
 }
 
 // ---------- worker ----------
@@ -224,7 +224,9 @@ async function handle(request, env, info) {
     }
 
     // The file first: a saved reading is returned as it is, and Gemini is not asked.
-    const file = await env.READINGS.get(`${slug}.json`);
+    // ?bust=1 skips the file: the reading is written again and the new one replaces the file (the old one stays if Gemini fails).
+    const bust = new URL(request.url).searchParams.get("bust") === "1";
+    const file = bust ? null : await env.READINGS.get(`${slug}.json`);
     if (file) info.cache = "HIT";
     if (file) return new Response(request.method === "HEAD" ? null : file.body, { headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Cache": "HIT" } });
 
@@ -232,7 +234,7 @@ async function handle(request, env, info) {
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) { info.error = "rate limited"; return json({ error: "too many new readings, try again in a minute" }, 429, { "Retry-After": "60" }); }
 
-    info.cache = "MISS";
+    info.cache = bust ? "BUST" : "MISS";
     let reading;
     try {
       reading = await build();
@@ -243,6 +245,6 @@ async function handle(request, env, info) {
     }
     const body = JSON.stringify(reading);
     await env.READINGS.put(`${slug}.json`, body, { httpMetadata: { contentType: "application/json" } });
-    return new Response(request.method === "HEAD" ? null : body, { headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Cache": "MISS" } });
+    return new Response(request.method === "HEAD" ? null : body, { headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Cache": bust ? "BUST" : "MISS" } });
   }
 }
