@@ -1,0 +1,23 @@
+{
+  // The zodiac Worker (worker/zodiac.js): GET /reading/{sign}/{era}/{career}/{date} and GET /reading/general/{date}, written by Gemini.
+  // Deployed by: python3 tools/deploy_worker.py
+  "name": "zodiac-worker",
+  "main": "zodiac.js",
+  "compatibility_date": "2025-09-01",
+  // The deploy attaches this address and turns the workers.dev address off.
+  "domain": "zodiac-worker.situs.id",
+  // Google refuses Gemini requests handled in some places (Hong Kong), so run near Singapore.
+  "placement": { "region": "aws:ap-southeast-1" },
+  // R2 bucket holding one file per reading: {slug}.json. The worker looks there before it asks Gemini. Created by the deploy.
+  "r2": { "binding": "READINGS", "bucket": "zodiac" },
+  "vars": {
+    // The model is fixed in zodiac.js: always gemini-3.8-flash.
+    "THINKING_BUDGET": "0",
+    "MAX_OUTPUT_TOKENS": "12000"
+  },
+  // Secret GEMINI_API_KEY: entered in the Cloudflare dashboard (Worker > Settings > Variables and Secrets); deploys keep it.
+  // Only a request that needs Gemini (nothing in R2 yet) counts: at most 6 a minute from one IP address.
+  "ratelimits": [
+    { "name": "LIMITER", "namespace_id": "2002", "simple": { "limit": 6, "period": 60 } }
+  ]
+}
