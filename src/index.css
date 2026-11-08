@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: #07080D;
+    color: #FAF7F0;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: 'Cormorant Garamond', 'Didot', 'Bodoni MT', 'Playfair Display', Georgia, serif;
+  }
+}
+
+/* Custom subtle editorial scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #07080D;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(223, 192, 130, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(223, 192, 130, 0.45);
+}
+
+/* Editorial hairlines and glass surfaces */
+.editorial-border {
+  border-color: rgba(244, 239, 228, 0.12);
+}
+
+.editorial-card {
+  background: linear-gradient(165deg, rgba(19, 23, 38, 0.84) 0%, rgba(11, 13, 22, 0.92) 100%);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(244, 239, 228, 0.12);
+}
+
+.editorial-card-hover {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.35s ease, box-shadow 0.35s ease;
+}
+
+.editorial-card-hover:hover {
+  transform: translateY(-3px);
+  border-color: rgba(223, 192, 130, 0.42);
+  box-shadow: 0 22px 48px -16px rgba(0, 0, 0, 0.75), 0 0 28px -8px rgba(223, 192, 130, 0.15);
+}

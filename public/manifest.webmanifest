@@ -1,0 +1,19 @@
+{
+  "name": "ASTRAEA — Celestial Editorial Daily",
+  "short_name": "ASTRAEA",
+  "description": "Editorial horoscope magazine, Google Calendar-style Cosmic Schedule, 12x7 Social Radar Synastry, and Daily Audio Auras.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07080D",
+  "theme_color": "#07080D",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
